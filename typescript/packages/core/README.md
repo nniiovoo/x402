@@ -176,7 +176,7 @@ client
     // Return { abort: true, reason: '...' } to cancel
   })
   .onAfterPaymentCreation(async (ctx) => {
-    console.log('Payment created:', ctx.paymentPayload);
+    console.log('Payment created for:', ctx.selectedRequirements.network);
   })
   .onPaymentCreationFailure(async (ctx) => {
     console.error('Payment failed:', ctx.error);

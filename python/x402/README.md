@@ -224,7 +224,7 @@ def before_payment(ctx):
 
 
 def after_payment(ctx):
-    print(f"Payment created: {ctx.payment_payload}")
+    print(f"Payment created for: {ctx.selected_requirements.network}")
 
 
 def on_failure(ctx):

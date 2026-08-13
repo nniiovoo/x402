@@ -210,12 +210,14 @@ Register hooks for HTTP-specific request handling before payment processing. Use
 
 ### x402Client (Transport-agnostic)
 
-Register hooks on the core client for payment payload creation lifecycle events. Common use cases include enforcing spending limits, requiring approval for large payments or logging outgoing transactions.
+Register hooks on the core client for payment payload creation lifecycle events. Common use cases include enforcing spending limits, requiring approval for large payments or recording non-sensitive payment metadata.
 
 * **onBeforePaymentCreation** — Runs before creating a payment payload. Return `{ abort: true, reason }` to cancel.
 * **onAfterPaymentCreation** — Runs after successful payload creation.
 * **onPaymentCreationFailure** — Runs on failure. Return `{ recovered: true, payload }` to provide fallback.
 * **onPaymentResponse** — Runs after a paid request completes. Return `{ recovered: true }` to tell the transport to retry with a fresh payload.
+
+<Warning>Never put complete payment payloads in logs or traces. Their signatures or authorizations may remain usable until settlement or expiry.</Warning>
 
 <Tabs>
   <Tab title="TypeScript">
