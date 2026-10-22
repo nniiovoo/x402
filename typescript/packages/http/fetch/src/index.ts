@@ -10,9 +10,12 @@ export type ValidatePaidResponseContext = {
 };
 
 /**
- * Optional caller-owned check of a paid response.
+ * Optional caller-owned check of the final non-402 response after a payment attempt.
  *
- * @param response - Clone of the paid response; reading it leaves the returned response unread
+ * Includes HTTP errors and responses without settlement receipts. Release acquired body readers
+ * before validation completes, and do not await body or reader cancellation inside the callback.
+ *
+ * @param response - Clone of the final response; reading it leaves the returned response unread
  * @param context - Payment requirements and whether this was the recovery path
  */
 export type ValidatePaidResponse = (
@@ -24,7 +27,7 @@ export type ValidatePaidResponse = (
  * Optional behavior for wrapFetchWithPayment.
  */
 export type WrapFetchWithPaymentOptions = {
-  /** Validates paid responses other than a terminal 402. Omit to keep current behavior. */
+  /** Checks final non-402 responses after a payment attempt. Omit to keep current behavior. */
   validatePaidResponse?: ValidatePaidResponse;
 };
 
@@ -104,6 +107,12 @@ async function applyValidatePaidResponse(
     const message =
       error instanceof Error && error.message ? error.message : "Paid response validation failed";
     throw new PaidResponseValidationError(message, { ...evidence, cause: error });
+  } finally {
+    const body = detachedResponse.body;
+    if (body && !body.locked) {
+      // Tee cancellation can wait for the caller's branch to finish.
+      void body.cancel().catch(() => {});
+    }
   }
 }
 

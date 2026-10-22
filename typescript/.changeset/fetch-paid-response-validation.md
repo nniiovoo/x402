@@ -2,4 +2,4 @@
 "@x402/fetch": minor
 ---
 
-Added optional validation for paid fetch responses.
+Added optional validation of the response returned after a payment attempt.

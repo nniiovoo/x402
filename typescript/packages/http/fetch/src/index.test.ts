@@ -651,6 +651,80 @@ describe("wrapFetchWithPayment() paid-response validation", () => {
     expect(mockClient.createPaymentPayload).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    { rejects: false, reads: false },
+    { rejects: true, reads: false },
+    { rejects: false, reads: true },
+    { rejects: true, reads: true },
+  ])(
+    "should allow original stream cancellation (validator rejects: $rejects, partial read: $reads)",
+    async ({ rejects, reads }) => {
+      const cancelSource = vi.fn();
+      const paidResponse = new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array([1, 2, 3]));
+          },
+          cancel: cancelSource,
+        }),
+      );
+      const validationError = new Error("invalid streamed response");
+      let validationView: Response | undefined;
+      const validator = vi.fn(async (view: Response) => {
+        validationView = view;
+        if (reads) {
+          const reader = view.body!.getReader();
+          try {
+            await reader.read();
+          } finally {
+            reader.releaseLock();
+          }
+        }
+        if (rejects) {
+          throw validationError;
+        }
+      });
+      const wrappedFetch = wrapWithValidator(validator);
+      mockFetch
+        .mockResolvedValueOnce(createResponse(402, validPaymentRequired))
+        .mockResolvedValueOnce(paidResponse);
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+
+      try {
+        const result = wrappedFetch("https://api.example.com");
+        if (rejects) {
+          await expect(result).rejects.toMatchObject({
+            name: "PaidResponseValidationError",
+            response: paidResponse,
+            cause: validationError,
+          });
+        } else {
+          await expect(result).resolves.toBe(paidResponse);
+        }
+        expect(paidResponse.bodyUsed).toBe(false);
+        await Promise.race([
+          paidResponse.body!.cancel(),
+          new Promise<void>((_, reject) => {
+            timeout = setTimeout(
+              () => reject(new Error("Original response cancellation did not settle")),
+              1000,
+            );
+          }),
+        ]);
+        expect(cancelSource).toHaveBeenCalledTimes(1);
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        expect(mockClient.createPaymentPayload).toHaveBeenCalledTimes(1);
+      } finally {
+        clearTimeout(timeout);
+        const body = validationView?.body;
+        if (body && !body.locked) {
+          void body.cancel().catch(() => {});
+        }
+        await paidResponse.body!.cancel();
+      }
+    },
+  );
+
   it("should not validate a terminal post-payment 402", async () => {
     const { x402HTTPClient: MockX402HTTPClient } = await import("@x402/core/client");
     const validator = vi.fn();
@@ -726,6 +800,50 @@ describe("wrapFetchWithPayment() paid-response validation", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
     expect(mockClient.createPaymentPayload).toHaveBeenCalledTimes(1);
   });
+
+  it.each([
+    { recovered: false, rejects: false },
+    { recovered: false, rejects: true },
+    { recovered: true, rejects: false },
+    { recovered: true, rejects: true },
+  ])(
+    "should validate a plain-text 500 without a receipt (recovered: $recovered, rejects: $rejects)",
+    async ({ recovered, rejects }) => {
+      const failureResponse = new Response("upstream failed", { status: 500 });
+      const validationError = new Error("server response rejected");
+      const validator = vi.fn(() => {
+        if (rejects) {
+          throw validationError;
+        }
+      });
+      const wrappedFetch = wrapWithValidator(validator);
+      if (recovered) {
+        await setupRecoveryFlow(failureResponse);
+      } else {
+        mockFetch
+          .mockResolvedValueOnce(createResponse(402, validPaymentRequired))
+          .mockResolvedValueOnce(failureResponse);
+      }
+
+      const result = wrappedFetch("https://api.example.com");
+      if (rejects) {
+        await expect(result).rejects.toMatchObject({
+          name: "PaidResponseValidationError",
+          response: failureResponse,
+          cause: validationError,
+          recovered,
+          paymentResponseHeader: undefined,
+        });
+      } else {
+        await expect(result).resolves.toBe(failureResponse);
+      }
+      expectDetachedValidationCall(validator, failureResponse, recovered);
+      expect(failureResponse.bodyUsed).toBe(false);
+      await expect(failureResponse.text()).resolves.toBe("upstream failed");
+      expect(mockFetch).toHaveBeenCalledTimes(recovered ? 3 : 2);
+      expect(mockClient.createPaymentPayload).toHaveBeenCalledTimes(recovered ? 2 : 1);
+    },
+  );
 
   it("should return a recovered paid body when the validator succeeds", async () => {
     const { x402HTTPClient: MockX402HTTPClient } = await import("@x402/core/client");

@@ -46,18 +46,25 @@ Wraps the native fetch API to handle 402 Payment Required responses automaticall
 
 - `fetch`: The fetch function to wrap (typically `globalThis.fetch`)
 - `client`: An x402Client instance with registered payment schemes
-- `options.validatePaidResponse`: Optional check of a paid response, run after payment processing on both the ordinary and recovery paths. The callback receives a `Response.clone()`, so the returned response body stays unread. Rejecting throws `PaidResponseValidationError` — carrying the original response and its `PAYMENT-RESPONSE` header — without paying again. Omit to keep existing behavior.
+- `options.validatePaidResponse`: Optional check of the final non-402 response after a payment attempt on both the ordinary and recovery paths, including HTTP errors and responses without a payment receipt. The callback receives a `Response.clone()`, so the returned response body stays unread. Callback rejection throws `PaidResponseValidationError` — carrying the original response and its `PAYMENT-RESPONSE` header — without paying again. Omit to keep existing behavior.
+
+HTTP errors may still have been paid upfront, and a missing receipt does not prove nonpayment. This example leaves HTTP error handling to the caller before validating successful JSON responses.
 
 ```typescript
 const fetchWithPayment = wrapFetchWithPayment(fetch, client, {
   validatePaidResponse: async response => {
+    if (!response.ok) {
+      return;
+    }
     const body = await response.json();
     if (!body?.report?.weather) {
-      throw new Error("paid body missing report.weather");
+      throw new Error("response body missing report.weather");
     }
   },
 });
 ```
+
+Validators must release any acquired body reader before validation completes. Do not await body or reader cancellation inside the callback: it can wait for the original response to finish. The wrapper cancels an unlocked clone after validation settles. Reading the entire clone buffers the original body until validation completes.
 
 ### `wrapFetchWithPaymentFromConfig(fetch, config, options?)`
 
