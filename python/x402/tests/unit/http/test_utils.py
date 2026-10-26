@@ -116,7 +116,7 @@ class TestSafeBase64:
     "decode_header",
     [decode_payment_signature_header, decode_payment_required_header],
 )
-@pytest.mark.parametrize("json_value", ["[]", '"s"', "1", "null", "true"])
+@pytest.mark.parametrize("json_value", ["[]", '"s"', "1", "null", "true", "false"])
 def test_payment_header_decoders_reject_non_object_json(decode_header, json_value):
     header = safe_base64_encode(json_value)
 
