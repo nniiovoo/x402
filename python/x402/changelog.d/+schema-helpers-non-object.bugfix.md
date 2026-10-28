@@ -1,0 +1,1 @@
+`detect_version`, `get_scheme_and_network`, `match_payload_to_requirements`, `parse_payment_required` and `parse_payment_payload` now raise `ValueError` instead of `AttributeError` for non-object JSON, including a non-object V2 `accepted` field. `detect_payment_required_version` does the same for a non-object response body.
